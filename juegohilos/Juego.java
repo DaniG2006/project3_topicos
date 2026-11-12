@@ -34,8 +34,11 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JOptionPane;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 /**
  * "Catch the Stars" - game with all the project elements:
@@ -260,7 +263,15 @@ public class Juego extends JPanel {
                 lienzo.repaint();
                 break;
             default:
-                System.exit(0);
+                int respuesta = JOptionPane.showConfirmDialog(
+                        Juego.this,
+                        "¿Deseas salir del juego?",
+                        "Confirmar salida",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (respuesta == JOptionPane.YES_OPTION) {
+                    System.exit(0);
+                }
         }
     }
 
@@ -323,6 +334,7 @@ public class Juego extends JPanel {
     }
 
     private void recoger(Objeto o, int id) {
+        Sonido.bajarMusicaDurante(500);
         switch (o.tipo) {
             case ESTRELLA:
                 puntos.addAndGet(10);
@@ -506,6 +518,22 @@ public class Juego extends JPanel {
             setFocusable(true);
             setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
             configurarTeclas();
+            addMouseListener(new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) {
+                    if (!menuAbierto) return;
+                    int bw = 420;
+                    int bh = 270;
+                    int bx = (getWidth() - bw) / 2;
+                    int by = (getHeight() - bh) / 2;
+                    if (e.getX() < bx || e.getX() > bx + bw
+                            || e.getY() < by + 78 || e.getY() > by + 225) return;
+                    int opcion = (e.getY() - (by + 78)) / 40;
+                    if (opcion >= 0 && opcion < 4) {
+                        menuSel = opcion;
+                        elegirMenu();
+                    }
+                }
+            });
         }
 
         private void configurarTeclas() {
