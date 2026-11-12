@@ -8,7 +8,7 @@ import java.awt.geom.Path2D;
 /** Dibujo de todos los personajes y objetos con bloques de píxeles. */
 final class Sprites {
 
-    private static final int U = 2; // tamaño de cada "celda" del pony en píxeles lógicos
+    private static final int U = 2;
 
     static final Color MELENA = new Color(120, 60, 170);
     static final Color CUERNO = new Color(250, 220, 90);
@@ -54,42 +54,44 @@ final class Sprites {
     }
 
     private static void ponyBase(Graphics2D g, int x, int pies, int frame, boolean aire, Color cuerpo) {
-        int y0 = pies - 15 * U;
+        int y0 = pies - 18 * U;
         Color sombra = cuerpo.darker();
 
         // cola
         int ond = (frame == 0) ? 0 : 1;
-        c(g, x, y0, 0, 7 + ond, 1, 5, MELENA);
-        c(g, x, y0, 1, 7, 2, 4, MELENA);
+        c(g, x, y0, 0, 8 + ond, 2, 6, MELENA);
+        c(g, x, y0, 1, 7, 3, 5, MELENA);
+        c(g, x, y0, 0, 12 + ond, 2, 3, MELENA);
 
         // patas
         int[] lx;
         int[] len;
         if (aire) {
-            lx = new int[] {2, 4, 9, 11};
-            len = new int[] {2, 2, 2, 2};
+            lx = new int[] {3, 6, 11, 14};
+            len = new int[] {3, 3, 3, 3};
         } else {
-            lx = new int[] {3, 5, 8, 10};
-            len = (frame == 0) ? new int[] {3, 2, 2, 3} : new int[] {2, 3, 3, 2};
+            lx = new int[] {3, 6, 11, 14};
+            len = (frame == 0) ? new int[] {4, 3, 3, 4} : new int[] {3, 4, 4, 3};
         }
         for (int k = 0; k < 4; k++) {
             Color col = (k % 2 == 0) ? sombra : cuerpo;
-            c(g, x, y0, lx[k], 12, 2, len[k] - 1, col);
-            c(g, x, y0, lx[k], 12 + len[k] - 1, 2, 1, PEZUNA);
+            c(g, x, y0, lx[k], 13, 3, len[k], col);
+            c(g, x, y0, lx[k] - 1, 13 + len[k], 4, 1, PEZUNA);
         }
 
         // cuerpo, cuello y cabeza
-        c(g, x, y0, 3, 7, 9, 5, cuerpo);
-        c(g, x, y0, 3, 11, 9, 1, sombra);
-        c(g, x, y0, 10, 5, 3, 3, cuerpo);
-        c(g, x, y0, 11, 2, 5, 4, cuerpo);
-        c(g, x, y0, 15, 5, 1, 1, sombra);
+        c(g, x, y0, 3, 8, 12, 6, cuerpo);
+        c(g, x, y0, 4, 13, 10, 2, sombra);
+        c(g, x, y0, 12, 5, 4, 5, cuerpo);
+        c(g, x, y0, 14, 2, 7, 5, cuerpo);
+        c(g, x, y0, 20, 5, 2, 2, sombra);
 
         // melena, oreja, cuerno y ojo
-        c(g, x, y0, 9, 2, 2, 6, MELENA);
-        c(g, x, y0, 11, 1, 1, 1, cuerpo);
-        c(g, x, y0, 14, 0, 1, 2, CUERNO);
-        c(g, x, y0, 13, 3, 1, 1, OJO);
+        c(g, x, y0, 11, 2, 3, 8, MELENA);
+        c(g, x, y0, 13, 1, 2, 2, cuerpo);
+        c(g, x, y0, 18, 0, 2, 3, CUERNO);
+        c(g, x, y0, 17, 4, 2, 2, OJO);
+        c(g, x, y0, 20, 8, 2, 1, new Color(165, 90, 180));
     }
 
     // ------------------------------------------------------------------ obstáculos

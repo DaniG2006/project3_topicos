@@ -17,6 +17,7 @@ import java.awt.Shape;
 import java.awt.event.ActionEvent;
 import java.awt.geom.Point2D;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -62,10 +63,10 @@ public class PanelJuego extends JPanel {
 
     private static final Color PONY_ROSA = new Color(214, 150, 238);
     private static final Color SOMBRA = new Color(20, 10, 40);
-    private static final Font FUENTE = new Font(Font.MONOSPACED, Font.BOLD, 12);
-    private static final Font FUENTE_P = new Font(Font.MONOSPACED, Font.BOLD, 10);
-    private static final Font FUENTE_G = new Font(Font.MONOSPACED, Font.BOLD, 34);
-    private static final Font FUENTE_M = new Font(Font.MONOSPACED, Font.BOLD, 16);
+    private static final Font FUENTE = new Font("Comic Sans MS", Font.BOLD, 12);
+    private static final Font FUENTE_P = new Font("Comic Sans MS", Font.BOLD, 10);
+    private static final Font FUENTE_G = new Font("Comic Sans MS", Font.BOLD, 34);
+    private static final Font FUENTE_M = new Font("Comic Sans MS", Font.BOLD, 16);
     private static final String[] MENSAJES = {
         "SIGUE CORRIENDO", "NO PUEDES SALIR", "TE ESTOY VIENDO", "ERROR 666", "NO HAY ESCAPE"
     };
@@ -147,6 +148,7 @@ public class PanelJuego extends JPanel {
     // ------------------------------------------------------------------ estado compartido (entre hilos)
     private volatile Estado estado = Estado.TITULO;
     private volatile boolean pausado = false;
+    private volatile int pausaSeleccion = 0;
     private volatile boolean saltoPulsado, agachadoPulsado, saltoSolicitado, iniciarSolicitado;
     private volatile int partida = 0;
     private volatile long tiempoMs = 0;                 // lo escribe Hilo-Cronometro
@@ -154,6 +156,7 @@ public class PanelJuego extends JPanel {
     private volatile String glitchMsg = "";
     private volatile long gameOverDesde = 0;
     private volatile int mejor = 0;
+    private Runnable alMenuPrincipal = () -> { };
 
     private final ConcurrentLinkedQueue<Obst> pendientesObst = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Bonus> pendientesBonus = new ConcurrentLinkedQueue<>();
@@ -219,16 +222,35 @@ public class PanelJuego extends JPanel {
             im.put(KeyStroke.getKeyStroke("released " + k), "agacharOff");
         }
         im.put(KeyStroke.getKeyStroke("pressed P"), "pausa");
+        im.put(KeyStroke.getKeyStroke("pressed ESCAPE"), "menuPausa");
+        im.put(KeyStroke.getKeyStroke("pressed LEFT"), "pausaIzquierda");
+        im.put(KeyStroke.getKeyStroke("pressed RIGHT"), "pausaDerecha");
         im.put(KeyStroke.getKeyStroke("pressed M"), "sonido");
-        im.put(KeyStroke.getKeyStroke("pressed ENTER"), "iniciar");
+        im.put(KeyStroke.getKeyStroke("pressed ENTER"), "enterJuego");
 
         am.put("saltoOn", accion(() -> teclaSalto(true)));
         am.put("saltoOff", accion(() -> teclaSalto(false)));
         am.put("agacharOn", accion(() -> agachadoPulsado = true));
         am.put("agacharOff", accion(() -> agachadoPulsado = false));
         am.put("pausa", accion(() -> { if (estado == Estado.JUGANDO) pausado = !pausado; }));
+        am.put("menuPausa", accion(this::alternarMenuPausa));
+        am.put("pausaIzquierda", accion(() -> seleccionarPausa(-1)));
+        am.put("pausaDerecha", accion(() -> seleccionarPausa(1)));
         am.put("sonido", accion(() -> Sonido.setSilencio(!Sonido.isSilencio())));
-        am.put("iniciar", accion(this::solicitarInicio));
+        am.put("enterJuego", accion(() -> {
+            if (pausado) activarPausa();
+            else solicitarInicio();
+        }));
+        im.put(KeyStroke.getKeyStroke("pressed UP"), "pausaArriba");
+        im.put(KeyStroke.getKeyStroke("pressed DOWN"), "pausaAbajo");
+        am.put("pausaArriba", accion(() -> {
+            if (pausado) seleccionarPausa(-1);
+            else teclaSalto(true);
+        }));
+        am.put("pausaAbajo", accion(() -> {
+            if (pausado) seleccionarPausa(1);
+            else agachadoPulsado = true;
+        }));
     }
 
     private static AbstractAction accion(Runnable r) {
@@ -242,6 +264,10 @@ public class PanelJuego extends JPanel {
     private void teclaSalto(boolean presionada) {
         saltoPulsado = presionada;
         if (!presionada) return;
+        if (pausado) {
+            activarPausa();
+            return;
+        }
         if (estado == Estado.JUGANDO) saltoSolicitado = true;
         else solicitarInicio();
     }
@@ -250,6 +276,53 @@ public class PanelJuego extends JPanel {
         boolean puede = estado == Estado.TITULO
                 || (estado == Estado.GAMEOVER && System.currentTimeMillis() - gameOverDesde > 700);
         if (puede) iniciarSolicitado = true;
+    }
+
+    /** Starts a game after the external menu and loading screen finish. */
+    public void iniciarDesdeMenu() {
+        solicitarInicio();
+    }
+
+    public void setAlMenuPrincipal(Runnable r) {
+        alMenuPrincipal = r;
+    }
+
+    private void alternarMenuPausa() {
+        if (estado != Estado.JUGANDO) return;
+        pausado = !pausado;
+        pausaSeleccion = 0;
+        if (pausado) Sonido.setMusica(false);
+        else Sonido.setMusica(true);
+    }
+
+    private void seleccionarPausa(int delta) {
+        if (!pausado || estado != Estado.JUGANDO) return;
+        pausaSeleccion = (pausaSeleccion + delta + 4) % 4;
+        Sonido.reproducir(Sonido.Efecto.MOVE);
+    }
+
+    private void activarPausa() {
+        if (!pausado || estado != Estado.JUGANDO) return;
+        switch (pausaSeleccion) {
+            case 0:
+                pausado = false;
+                Sonido.setMusica(true);
+                break;
+            case 1:
+                pausado = false;
+                iniciarSolicitado = true;
+                estado = Estado.TITULO;
+                Sonido.setMusica(false);
+                break;
+            case 2:
+                Sonido.setSilencio(!Sonido.isSilencio());
+                break;
+            default:
+                pausado = false;
+                estado = Estado.TITULO;
+                Sonido.setMusica(false);
+                alMenuPrincipal.run();
+        }
     }
 
     // =================================================================== récord (archivo)
@@ -568,8 +641,8 @@ public class PanelJuego extends JPanel {
     }
 
     private Rectangle rectPony() {
-        int alto = agachado ? 16 : 26;
-        return new Rectangle(PX + 5, (int) ponyY - alto, 20, alto);
+        int alto = agachado ? 12 : 18;
+        return new Rectangle(PX + 4, (int) ponyY - alto, 16, alto);
     }
 
     private void golpe() {
@@ -707,7 +780,11 @@ public class PanelJuego extends JPanel {
         boolean visible = invulnerable <= 0 || (invulnerable / 4) % 2 == 0;
         if (!visible) return;
         int frame = (estado == Estado.GAMEOVER) ? 0 : (estado == Estado.TITULO ? (reloj / 6) % 2 : (animFrames / 5) % 2);
-        Sprites.pony(g, PX, (int) ponyY, frame, agachado, !enSuelo, cuerpo);
+        AffineTransform ponyTransform = g.getTransform();
+        g.translate(PX, ponyY);
+        g.scale(0.68, 0.68);
+        Sprites.pony(g, 0, 0, frame, agachado, !enSuelo, cuerpo);
+        g.setTransform(ponyTransform);
     }
 
     private void dibujarFondo(Graphics2D g, double noche) {
@@ -789,7 +866,8 @@ public class PanelJuego extends JPanel {
     }
 
     private void texto(Graphics2D g, String s, int x, int y, Color c) {
-        g.setColor(SOMBRA);
+        g.setColor(new Color(38, 12, 72));
+        g.drawString(s, x + 2, y + 2);
         g.drawString(s, x + 1, y + 1);
         g.setColor(c);
         g.drawString(s, x, y);
@@ -804,30 +882,35 @@ public class PanelJuego extends JPanel {
         g.setFont(FUENTE);
         if (estado != Estado.TITULO) {
             for (int i = 0; i < vidas; i++) {
-                Sprites.corazon(g, 8 + i * 10, 8, new Color(235, 50, 85));
+                AffineTransform vida = g.getTransform();
+                g.translate(8 + i * 20, 2);
+                g.scale(1.7, 1.7);
+                Sprites.corazon(g, 0, 0, new Color(255, 65, 95));
+                g.setTransform(vida);
             }
-            texto(g, "TIEMPO " + formato(tiempoMs), 8, 30, Color.WHITE);
+            texto(g, "TIEMPO " + formato(tiempoMs), 8, 36, UI.AMARILLO);
 
             int by = 40;
             if (estrellaFrames > 0) {
                 Sprites.estrella(g, 14, by + 6, 0);
-                texto(g, (estrellaFrames / 60 + 1) + "s", 26, by + 10, new Color(255, 225, 70));
+                texto(g, (estrellaFrames / 60 + 1) + " s", 26, by + 10, UI.AMARILLO);
                 by += 16;
             }
             if (relojFrames > 0) {
                 Sprites.reloj(g, 14, by + 6);
-                texto(g, (relojFrames / 60 + 1) + "s", 26, by + 10, new Color(140, 190, 255));
+                texto(g, (relojFrames / 60 + 1) + " s", 26, by + 10, new Color(190, 220, 255));
             }
         }
 
-        String hi = String.format("HI %05d", Math.max(mejor, total()));
+        String hi = String.format("MEJOR %05d", Math.max(mejor, total()));
         String sc = String.format("%05d", total());
         boolean ocultar = destello > 0 && (destello / 4) % 2 == 0;
-        texto(g, hi, W - 150, 20, new Color(60, 50, 90));
+        texto(g, hi, W - 150, 20, UI.AMARILLO);
         if (estado != Estado.TITULO && !ocultar) texto(g, sc, W - 62, 20, Color.WHITE);
 
         g.setFont(FUENTE_P);
-        texto(g, Sonido.isSilencio() ? "SONIDO OFF (M)" : "SONIDO ON (M)", W - 110, 34, new Color(230, 230, 240));
+        texto(g, Sonido.isSilencio() ? "SONIDO APAGADO (M)" : "SONIDO ACTIVO (M)",
+                W - 135, 34, Color.WHITE);
 
         if (estado != Estado.TITULO) {
             int bx = 70, bw = W - 140, by = H - 16;
@@ -845,7 +928,7 @@ public class PanelJuego extends JPanel {
             g.setColor(new Color(10, 5, 30, 130));
             g.fillRect(70, 40, W - 140, 150);
             g.setFont(FUENTE_G);
-            textoCentrado(g, "PONY RUN", W / 2, 88, new Color(255, 215, 90));
+            textoCentrado(g, "PONY ISLAND", W / 2, 88, new Color(255, 215, 90));
             g.setFont(FUENTE_P);
             textoCentrado(g, "una carrera contra la oscuridad", W / 2, 106, new Color(210, 190, 240));
             g.setFont(FUENTE_M);
@@ -860,14 +943,33 @@ public class PanelJuego extends JPanel {
             textoCentrado(g, "FIN DEL JUEGO", W / 2, 100, new Color(255, 70, 90));
             g.setFont(FUENTE_M);
             textoCentrado(g, "PUNTOS " + total() + "   TIEMPO " + formato(tiempoMs), W / 2, 130, Color.WHITE);
-            textoCentrado(g, nuevoRecord ? "NUEVO RECORD!" : "RECORD " + mejor, W / 2, 154,
+            textoCentrado(g, nuevoRecord ? "NUEVO RECORD!" : "MEJOR " + mejor, W / 2, 154,
                     nuevoRecord ? new Color(255, 225, 70) : new Color(200, 200, 215));
             if (parpadeo) textoCentrado(g, "ESPACIO PARA REINTENTAR", W / 2, 190, Color.WHITE);
         } else if (pausado) {
             g.setColor(new Color(0, 0, 0, 150));
             g.fillRect(0, 0, W, H);
-            g.setFont(FUENTE_G);
-            textoCentrado(g, "PAUSA", W / 2, H / 2 + 10, Color.WHITE);
+            g.setColor(new Color(22, 18, 55, 235));
+            g.fillRoundRect(70, 12, W - 140, 246, 10, 10);
+            g.setColor(new Color(255, 220, 90));
+            g.setStroke(new BasicStroke(2));
+            g.drawRoundRect(70, 12, W - 140, 246, 10, 10);
+            g.setFont(new Font("Comic Sans MS", Font.BOLD, 30));
+            textoCentrado(g, "MENÚ", W / 2, 55, Color.WHITE);
+            g.setFont(new Font("Comic Sans MS", Font.BOLD, 16));
+            String[] opciones = {
+                "CONTINUAR", "NUEVA PARTIDA",
+                "SONIDO: " + (Sonido.isSilencio() ? "APAGADO" : "ENCENDIDO"),
+                "SALIR AL MENÚ"
+            };
+            for (int i = 0; i < opciones.length; i++) {
+                Color color = i == pausaSeleccion ? new Color(255, 220, 0) : Color.WHITE;
+                String texto = i == pausaSeleccion ? "> " + opciones[i] + " <" : opciones[i];
+                textoCentrado(g, texto, W / 2, 91 + i * 32, color);
+            }
+            g.setFont(new Font("Comic Sans MS", Font.PLAIN, 10));
+            textoCentrado(g, "ARRIBA/ABAJO: mover   ENTER/ESPACIO: elegir   ESC: cerrar",
+                    W / 2, 242, new Color(210, 205, 225));
         }
     }
 
@@ -922,10 +1024,6 @@ public class PanelJuego extends JPanel {
         if (estado == Estado.GAMEOVER || System.currentTimeMillis() < glitchHasta) {
             dibujarRuido(g, ox, oy);
         }
-
-        g.setStroke(new BasicStroke(1f));
-        telarana(g, ox + 8, oy + 8, 1);
-        telarana(g, ox + SCR_W - 8, oy + 8, -1);
 
         g.setClip(clipPrevio);
         g.setColor(new Color(8, 8, 8));

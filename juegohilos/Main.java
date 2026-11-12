@@ -6,15 +6,16 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
-/** Arranca la pantalla de carga y, al terminar, pasa al juego. */
+/** Starts the loading screen and, when it finishes, switches to the game. */
 public class Main {
     public static void main(String[] args) {
+        Sonido.iniciar();
         SwingUtilities.invokeLater(() -> {
             try {
                 UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
             } catch (Exception ignorada) { }
 
-            JFrame f = new JFrame("Catch those stars!");
+            JFrame f = new JFrame("Catch the Stars - Threads Project");
             f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
             CardLayout cartas = new CardLayout();

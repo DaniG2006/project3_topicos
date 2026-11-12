@@ -38,14 +38,16 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 
 /**
- * Juego "Atrapa las estrellas" con TODOS los elementos del proyecto:
+ * "Catch the Stars" - game with all the project elements:
  *
- *  - Ej. 1 (sincronización): cada 5 estrellas seguidas se lanzan 4 hilos (SubProceso1-4)
- *          que entran al MISMO método synchronized (ZonaBonus.ejecutar) y dan puntos extra.
- *  - Ej. 2 (cronómetro): Hilo-Cronometro mide el tiempo jugado (se detiene en pausa).
- *  - Ej. 3 (archivo + ciclos): el récord se lee en la carga (Hilo_I) y se guarda al terminar;
- *          Hilo-Vocales hace el ciclo de vocales A-E-I-O-U (hay que atraparlas en orden).
- *  - Ej. 4 (juego): hilo del juego, generador y cuenta regresiva de 60 s.
+ *  - Ex. 1 (synchronization): every 5 stars in a row, 4 threads (SubProcess1-4) enter the SAME
+ *          synchronized method (ZonaBonus.ejecutar) and give extra points.
+ *  - Ex. 2 (stopwatch): Stopwatch-Thread measures play time (it stops while paused).
+ *  - Ex. 3 (file + loops): the best score is read on the loading screen and saved when the game ends;
+ *          Vowel-Thread runs the vowel cycle A-E-I-O-U (catch them in order).
+ *  - Ex. 4 (game): game loop, spawner and 60-second countdown, each one in its own thread.
+ *
+ * Controls: SPACE = start / restart, ESC = menu, P = pause, M = sound on/off.
  */
 public class Juego extends JPanel {
 
@@ -75,28 +77,30 @@ public class Juego extends JPanel {
     private final Random rnd = new Random();
     private final Lienzo lienzo = new Lienzo();
     private final JTextArea registro = new JTextArea();
-    private final JButton btnIniciar = new JButton("Iniciar / Reiniciar");
-    private final JButton btnPausar = new JButton("Pausar");
+    private final JButton btnIniciar = new JButton("Start / Restart");
+    private final JButton btnPausar = new JButton("Pause");
     private final ZonaBonus zonaBonus = new ZonaBonus();
 
-    private final AtomicInteger puntos = new AtomicInteger();      // lo modifican varios hilos
+    private final AtomicInteger puntos = new AtomicInteger();      // several threads add points
     private final AtomicBoolean bonusActivo = new AtomicBoolean(false);
 
     private volatile boolean jugando, finJuego, nuevoMejor, pausado, izq, der;
+    private volatile boolean menuAbierto, pausaPorMenu;
+    private volatile int menuSel = 0;
     private volatile int partida, vidas = 3, tiempo = DURACION, racha, vocalSiguiente, mejor;
-    private volatile long cronoMs;
+    private volatile long cronoMs, finDesde;
     private volatile double jugadorX = 400;
 
     public Juego() {
         setLayout(new BorderLayout());
 
         JPanel barra = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        btnIniciar.setFocusable(false); // el teclado siempre va al juego
+        btnIniciar.setFocusable(false); // keyboard always goes to the game
         btnPausar.setFocusable(false);
         btnPausar.setEnabled(false);
         barra.add(btnIniciar);
         barra.add(btnPausar);
-        barra.add(new JLabel("Move with arrows or A/D   |  Space: pause   |   Catch the vowels A-E-I-O-U in order for +100 and +1 life"));
+        barra.add(new JLabel("Move: arrows or A/D   |   SPACE: start   |   P: pause   |   ESC: menu   |   M: sound"));
 
         registro.setEditable(false);
         registro.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
@@ -104,7 +108,7 @@ public class Juego extends JPanel {
         registro.setForeground(new Color(150, 255, 170));
         JScrollPane sp = new JScrollPane(registro);
         sp.setPreferredSize(new Dimension(280, 520));
-        sp.setBorder(BorderFactory.createTitledBorder("Registro de hilos"));
+        sp.setBorder(BorderFactory.createTitledBorder("Thread log"));
 
         add(barra, BorderLayout.NORTH);
         add(lienzo, BorderLayout.CENTER);
@@ -116,7 +120,7 @@ public class Juego extends JPanel {
 
     public void setMejor(int valor) {
         mejor = valor;
-        log("Récord actual: " + valor);
+        log("Current best score: " + valor);
         lienzo.repaint();
     }
 
@@ -138,28 +142,32 @@ public class Juego extends JPanel {
         finJuego = false;
         nuevoMejor = false;
         pausado = false;
+        menuAbierto = false;
+        pausaPorMenu = false;
         jugadorX = Math.max(lienzo.getWidth(), 100) / 2.0;
         jugando = true;
 
-        btnPausar.setText("Pausar");
+        btnPausar.setText("Pause");
         btnPausar.setEnabled(true);
         registro.setText("");
-        log("=== Partida " + id + " ===");
+        log("=== Match " + id + " ===");
+        Sonido.reproducir(Sonido.Efecto.START);
         lienzo.requestFocusInWindow();
 
-        crearHilo("Hilo-Juego", () -> bucleJuego(id));
-        crearHilo("Hilo-Generador", () -> bucleGenerador(id));
-        crearHilo("Hilo-Tiempo", () -> bucleTiempo(id));
-        crearHilo("Hilo-Cronometro", () -> bucleCronometro(id));
-        crearHilo("Hilo-Vocales", () -> bucleVocales(id));
+        crearHilo("Game-Thread", () -> bucleJuego(id));
+        crearHilo("Spawner-Thread", () -> bucleGenerador(id));
+        crearHilo("Timer-Thread", () -> bucleTiempo(id));
+        crearHilo("Stopwatch-Thread", () -> bucleCronometro(id));
+        crearHilo("Vowel-Thread", () -> bucleVocales(id));
     }
 
     private void alternarPausa() {
-        if (!jugando) return;
+        if (!jugando || menuAbierto) return;
         pausado = !pausado;
-        btnPausar.setText(pausado ? "Reanudar" : "Pausar");
-        log(pausado ? "-- Juego en pausa --" : "-- Juego reanudado --");
+        btnPausar.setText(pausado ? "Resume" : "Pause");
+        log(pausado ? "-- Game paused --" : "-- Game resumed --");
         lienzo.requestFocusInWindow();
+        lienzo.repaint();
     }
 
     private synchronized void terminar(int id) {
@@ -167,34 +175,105 @@ public class Juego extends JPanel {
         jugando = false;
         finJuego = true;
         pausado = false;
+        finDesde = System.currentTimeMillis();
         int p = puntos.get();
-        log("=== Fin: " + p + " puntos ===");
+        log("=== End: " + p + " points ===");
         if (p > mejor) {
             mejor = p;
             nuevoMejor = true;
             guardarMejor(p);
+            Sonido.reproducir(Sonido.Efecto.RECORD);
+        } else {
+            Sonido.reproducir(Sonido.Efecto.GAMEOVER);
         }
         SwingUtilities.invokeLater(() -> {
             btnPausar.setEnabled(false);
-            btnPausar.setText("Pausar");
+            btnPausar.setText("Pause");
             lienzo.repaint();
         });
     }
 
-    /** Guarda el récord en record.txt usando un hilo propio. */
+    /** Saves the best score in record.txt using its own thread. */
     private void guardarMejor(int valor) {
         new Thread(() -> {
             try {
                 Files.write(Paths.get("record.txt"),
                         Collections.singletonList(String.valueOf(valor)), StandardCharsets.UTF_8);
-                log("[Hilo-Guardar] Récord guardado: " + valor);
+                log("[Save-Thread] Best score saved: " + valor);
             } catch (IOException e) {
-                log("[Hilo-Guardar] No se pudo guardar: " + e.getMessage());
+                log("[Save-Thread] Could not save: " + e.getMessage());
             }
-        }, "Hilo-Guardar").start();
+        }, "Save-Thread").start();
     }
 
-    // ------------------------------------------------------------------ hilos
+    // ------------------------------------------------------------------ menu (ESC)
+
+    private void alternarMenu() {
+        if (menuAbierto) cerrarMenu(); else abrirMenu();
+    }
+
+    private void abrirMenu() {
+        menuAbierto = true;
+        menuSel = 0;
+        if (jugando && !pausado) {      // the menu pauses all threads
+            pausado = true;
+            pausaPorMenu = true;
+        }
+        btnPausar.setText(pausado ? "Resume" : "Pause");
+        Sonido.reproducir(Sonido.Efecto.MENU_OPEN);
+        log("-- Menu opened --");
+        lienzo.repaint();
+    }
+
+    private void cerrarMenu() {
+        menuAbierto = false;
+        if (pausaPorMenu) {
+            pausado = false;
+            pausaPorMenu = false;
+        }
+        btnPausar.setText(pausado ? "Resume" : "Pause");
+        Sonido.reproducir(Sonido.Efecto.MENU_CLOSE);
+        log("-- Menu closed --");
+        lienzo.repaint();
+    }
+
+    private void moverMenu(int delta) {
+        if (!menuAbierto) return;
+        menuSel = (menuSel + delta + 4) % 4;
+        Sonido.reproducir(Sonido.Efecto.MOVE);
+        lienzo.repaint();
+    }
+
+    private void elegirMenu() {
+        if (!menuAbierto) return;
+        Sonido.reproducir(Sonido.Efecto.SELECT);
+        switch (menuSel) {
+            case 0:
+                cerrarMenu();
+                break;
+            case 1:
+                cerrarMenu();
+                iniciar();
+                break;
+            case 2:
+                Sonido.setSilencio(!Sonido.isSilencio());
+                lienzo.repaint();
+                break;
+            default:
+                System.exit(0);
+        }
+    }
+
+    /** SPACE: select in the menu; otherwise start / restart the game. */
+    private void teclaEspacio() {
+        if (menuAbierto) {
+            elegirMenu();
+        } else if (!jugando) {
+            if (!finJuego || System.currentTimeMillis() - finDesde > 600) iniciar();
+        }
+    }
+
+    // ------------------------------------------------------------------ threads
 
     private void crearHilo(String nombre, Runnable r) {
         Thread t = new Thread(r, nombre);
@@ -202,12 +281,12 @@ public class Juego extends JPanel {
         t.start();
     }
 
-    /** Un hilo sigue vivo solo mientras su partida esté activa. */
+    /** A thread stays alive only while its own match is active. */
     private boolean activo(int id) {
         return jugando && id == partida;
     }
 
-    /** Espera "ms" milisegundos de juego (el tiempo en pausa no cuenta). */
+    /** Waits "ms" of game time (time spent paused does not count). */
     private void esperar(int id, long ms) {
         long restante = ms;
         while (restante > 0 && activo(id)) {
@@ -248,23 +327,28 @@ public class Juego extends JPanel {
             case ESTRELLA:
                 puntos.addAndGet(10);
                 racha++;
+                Sonido.reproducir(Sonido.Efecto.STAR);
                 if (racha % 5 == 0) lanzarBonus(id);
                 break;
             case BOMBA:
                 vidas--;
                 racha = 0;
-                log("¡Bomba! Vidas: " + Math.max(vidas, 0));
+                Sonido.reproducir(Sonido.Efecto.BOMB);
+                log("Bomb! Lives: " + Math.max(vidas, 0));
                 if (vidas <= 0) terminar(id);
                 break;
             case VOCAL:
                 puntos.addAndGet(20);
                 vocalSiguiente++;
-                log("Vocal " + o.letra + " atrapada (+20)");
+                log("Vowel " + o.letra + " caught (+20)");
                 if (vocalSiguiente >= VOCALES.length) {
                     vocalSiguiente = 0;
                     puntos.addAndGet(100);
                     vidas = Math.min(5, vidas + 1);
-                    log("¡A-E-I-O-U completo! +100 y +1 vida");
+                    Sonido.reproducir(Sonido.Efecto.COMPLETE);
+                    log("A-E-I-O-U complete! +100 and +1 life");
+                } else {
+                    Sonido.reproducir(Sonido.Efecto.VOWEL);
                 }
                 break;
         }
@@ -282,7 +366,7 @@ public class Juego extends JPanel {
         }
     }
 
-    /** Cuenta regresiva de 60 s. */
+    /** 60-second countdown (beeps during the last 5 seconds). */
     private void bucleTiempo(int id) {
         int restante = DURACION;
         while (activo(id) && restante > 0) {
@@ -290,11 +374,12 @@ public class Juego extends JPanel {
             if (!activo(id)) return;
             restante--;
             tiempo = restante;
+            if (restante > 0 && restante <= 5) Sonido.reproducir(Sonido.Efecto.WARNING);
         }
         if (activo(id)) terminar(id);
     }
 
-    /** Cronómetro (Ejercicio 2): tiempo jugado, no avanza en pausa. */
+    /** Stopwatch (Exercise 2): play time, does not advance while paused. */
     private void bucleCronometro(int id) {
         long local = 0;
         long ultimo = System.nanoTime();
@@ -307,7 +392,7 @@ public class Juego extends JPanel {
         }
     }
 
-    /** Ciclo de vocales (Ejercicio 3): suelta la siguiente vocal A-E-I-O-U cada ~5 s. */
+    /** Vowel cycle (Exercise 3): drops the next vowel A-E-I-O-U about every 5 seconds. */
     private void bucleVocales(int id) {
         while (activo(id)) {
             esperar(id, 5000);
@@ -323,22 +408,23 @@ public class Juego extends JPanel {
                 int w = Math.max(lienzo.getWidth(), 100);
                 char letra = VOCALES[vocalSiguiente];
                 objetos.add(new Objeto(20 + rnd.nextInt(w - 40), 3.2, Tipo.VOCAL, letra));
-                log("[Hilo-Vocales] Cae la vocal " + letra);
+                log("[Vowel-Thread] Vowel " + letra + " is falling");
             }
         }
     }
 
-    // ------------------------------------------------------------------ bonus sincronizado (Ejercicio 1)
+    // ------------------------------------------------------------------ synchronized bonus (Exercise 1)
 
     private void lanzarBonus(int id) {
         if (!bonusActivo.compareAndSet(false, true)) return;
-        log(">>> ¡COMBO! 4 hilos al mismo metodo");
+        log(">>> COMBO! 4 threads, same method");
+        Sonido.reproducir(Sonido.Efecto.POWERUP);
 
         Thread[] hilos = {
-            new Thread(() -> zonaBonus.ejecutar(id, "SubProceso1", false), "SubProceso1"),
-            new Thread(() -> zonaBonus.ejecutar(id, "SubProceso2", false), "SubProceso2"),
-            new Thread(() -> zonaBonus.ejecutar(id, "SubProceso3", true), "SubProceso3"),
-            new Thread(() -> zonaBonus.ejecutar(id, "SubProceso4", true), "SubProceso4")
+            new Thread(() -> zonaBonus.ejecutar(id, "SubProcess1", false), "SubProcess1"),
+            new Thread(() -> zonaBonus.ejecutar(id, "SubProcess2", false), "SubProcess2"),
+            new Thread(() -> zonaBonus.ejecutar(id, "SubProcess3", true), "SubProcess3"),
+            new Thread(() -> zonaBonus.ejecutar(id, "SubProcess4", true), "SubProcess4")
         };
 
         Thread coordinador = new Thread(() -> {
@@ -346,34 +432,35 @@ public class Juego extends JPanel {
                 for (Thread t : hilos) {
                     t.setDaemon(true);
                     t.start();
-                    Thread.sleep(30); // orden de entrada predecible
+                    Thread.sleep(30); // predictable entry order
                 }
                 for (Thread t : hilos) t.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
             bonusActivo.set(false);
-        }, "Hilo-CoordinadorBonus");
+        }, "Bonus-Coordinator");
         coordinador.setDaemon(true);
         coordinador.start();
     }
 
-    /** Método común sincronizado: un SubProceso termina por completo antes de que entre otro. */
+    /** Shared synchronized method: one SubProcess finishes completely before the next one enters. */
     private class ZonaBonus {
         synchronized void ejecutar(int id, String nombre, boolean letras) {
             if (!activo(id)) return;
-            log("Inició:  " + nombre);
+            log("Started:  " + nombre);
             for (int i = 0; i < 10 && activo(id); i++) {
                 String valor = letras ? String.valueOf((char) ('a' + i)) : String.valueOf(i + 1);
-                log("  Hilo " + valor);
+                log("  Thread " + valor);
                 puntos.addAndGet(PUNTOS_BONUS_PASO);
+                Sonido.reproducir(Sonido.Efecto.TICK);
                 esperar(id, 120);
             }
-            log("Terminó: " + nombre);
+            log("Finished: " + nombre);
         }
     }
 
-    // ------------------------------------------------------------------ utilidades
+    // ------------------------------------------------------------------ utilities
 
     private void log(String texto) {
         SwingUtilities.invokeLater(() -> {
@@ -410,7 +497,7 @@ public class Juego extends JPanel {
         return p;
     }
 
-    // ------------------------------------------------------------------ dibujo
+    // ------------------------------------------------------------------ drawing and keyboard
 
     private class Lienzo extends JPanel {
 
@@ -424,15 +511,31 @@ public class Juego extends JPanel {
         private void configurarTeclas() {
             InputMap im = getInputMap(WHEN_IN_FOCUSED_WINDOW);
             ActionMap am = getActionMap();
+
             asignar(im, am, "LEFT", true);
             asignar(im, am, "A", true);
             asignar(im, am, "RIGHT", false);
             asignar(im, am, "D", false);
 
-            im.put(KeyStroke.getKeyStroke("pressed space"), "pausa");
-            am.put("pausa", new AbstractAction() {
+            tecla(im, am, "pressed SPACE", "espacio", Juego.this::teclaEspacio);
+            tecla(im, am, "pressed ENTER", "enter", Juego.this::elegirMenu);
+            tecla(im, am, "pressed ESCAPE", "menu", Juego.this::alternarMenu);
+            tecla(im, am, "pressed P", "pausa", Juego.this::alternarPausa);
+            tecla(im, am, "pressed UP", "arriba", () -> moverMenu(-1));
+            tecla(im, am, "pressed W", "arriba2", () -> moverMenu(-1));
+            tecla(im, am, "pressed DOWN", "abajo", () -> moverMenu(1));
+            tecla(im, am, "pressed S", "abajo2", () -> moverMenu(1));
+            tecla(im, am, "pressed M", "sonido", () -> {
+                Sonido.setSilencio(!Sonido.isSilencio());
+                repaint();
+            });
+        }
+
+        private void tecla(InputMap im, ActionMap am, String ks, String nombre, Runnable r) {
+            im.put(KeyStroke.getKeyStroke(ks), nombre);
+            am.put(nombre, new AbstractAction() {
                 @Override public void actionPerformed(ActionEvent e) {
-                    alternarPausa();
+                    r.run();
                 }
             });
         }
@@ -465,7 +568,7 @@ public class Juego extends JPanel {
             g.setPaint(new GradientPaint(0, 0, new Color(15, 20, 50), 0, h, new Color(45, 20, 80)));
             g.fillRect(0, 0, w, h);
 
-            // objetos
+            // falling objects
             for (Objeto o : objetos) {
                 int ox = (int) o.x;
                 int oy = (int) o.y;
@@ -492,11 +595,11 @@ public class Juego extends JPanel {
                 }
             }
 
-            // jugador
+            // player
             g.setColor(new Color(0, 200, 255));
             g.fillRoundRect((int) jugadorX - 40, h - 40, 80, 18, 10, 10);
 
-            dibujarHUD(g, w);
+            dibujarHUD(g, w, h);
 
             if (!jugando) {
                 g.setColor(new Color(0, 0, 0, 170));
@@ -504,38 +607,42 @@ public class Juego extends JPanel {
                 g.setColor(Color.WHITE);
                 if (finJuego) {
                     g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 36));
-                    centrado(g, "Finish", w, h / 2 - 40);
+                    centrado(g, "GAME OVER", w, h / 2 - 40);
                     g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 22));
-                    centrado(g, "Points: " + puntos.get() + "   |   Time played: " + formato(cronoMs), w, h / 2);
-                    centrado(g, nuevoMejor ? "New record!" : "RRecord: " + mejor, w, h / 2 + 36);
+                    centrado(g, "Score: " + puntos.get() + "   |   Time played: " + formato(cronoMs), w, h / 2);
+                    centrado(g, nuevoMejor ? "New best score!" : "Best: " + mejor, w, h / 2 + 36);
+                    g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 20));
+                    centrado(g, "Press SPACE to play again", w, h / 2 + 90);
                 } else {
                     g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 36));
-                    centrado(g, "Catch those stars", w, h / 2 - 90);
+                    centrado(g, "Catch the Stars", w, h / 2 - 90);
                     g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 18));
-                    centrado(g, "Move: arrows or A/D   |   Space: pause", w, h / 2 - 50);
+                    centrado(g, "Move: arrows or A/D   |   P: pause   |   ESC: menu", w, h / 2 - 50);
                     centrado(g, "Star: +10 points   |   Bomb: -1 life", w, h / 2 - 22);
                     centrado(g, "Catch the vowels A-E-I-O-U in order: +100 and +1 life", w, h / 2 + 6);
                     centrado(g, "5 stars in a row = combo (synchronized threads)", w, h / 2 + 34);
-                    g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
-                    centrado(g, "Press \"Start\" to play", w, h / 2 + 80);
+                    g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
+                    centrado(g, "Press SPACE to start", w, h / 2 + 85);
                 }
-            } else if (pausado) {
+            } else if (pausado && !menuAbierto) {
                 g.setColor(new Color(0, 0, 0, 150));
                 g.fillRect(0, 0, w, h);
                 g.setColor(Color.WHITE);
                 g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 48));
                 centrado(g, "PAUSED", w, h / 2);
             }
+
+            if (menuAbierto) dibujarMenu(g, w, h);
             g.dispose();
         }
 
-        private void dibujarHUD(Graphics2D g, int w) {
+        private void dibujarHUD(Graphics2D g, int w, int h) {
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 17));
             g.setColor(Color.WHITE);
 
-            // línea 1
-            g.drawString("Points: " + puntos.get(), 15, 26);
-            g.drawString("Record: " + Math.max(mejor, puntos.get()), 165, 26);
+            // line 1
+            g.drawString("Score: " + puntos.get(), 15, 26);
+            g.drawString("Best: " + Math.max(mejor, puntos.get()), 165, 26);
             g.drawString("Time: " + tiempo + " s", w / 2 + 20, 26);
             g.drawString("Lives:", w - 170, 26);
             g.setColor(Color.RED);
@@ -543,9 +650,9 @@ public class Juego extends JPanel {
                 g.fillOval(w - 105 + i * 18, 12, 14, 14);
             }
 
-            // línea 2
+            // line 2
             g.setColor(Color.WHITE);
-            g.drawString("Chronometer: " + formato(cronoMs), 15, 54);
+            g.drawString("Stopwatch: " + formato(cronoMs), 15, 54);
             for (int i = 0; i < VOCALES.length; i++) {
                 int x = w / 2 + 20 + i * 28;
                 if (i < vocalSiguiente) g.setColor(new Color(255, 215, 0));
@@ -562,8 +669,48 @@ public class Juego extends JPanel {
             if (jugando && bonusActivo.get()) {
                 g.setColor(new Color(0, 255, 140));
                 g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-                centrado(g, "BONUS: synchronized threads in action", w, 84);
+                centrado(g, "BONUS: synchronized threads running", w, 84);
             }
+
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            g.setColor(new Color(200, 200, 220));
+            g.drawString("ESC: menu   |   Sound: " + (Sonido.isSilencio() ? "OFF" : "ON") + " (M)", 10, h - 8);
+        }
+
+        private void dibujarMenu(Graphics2D g, int w, int h) {
+            g.setColor(new Color(0, 0, 0, 185));
+            g.fillRect(0, 0, w, h);
+
+            int bw = 420;
+            int bh = 270;
+            int bx = (w - bw) / 2;
+            int by = (h - bh) / 2;
+            g.setColor(new Color(25, 20, 55));
+            g.fillRoundRect(bx, by, bw, bh, 24, 24);
+            g.setColor(new Color(255, 215, 0));
+            g.setStroke(new BasicStroke(3));
+            g.drawRoundRect(bx, by, bw, bh, 24, 24);
+
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 32));
+            g.setColor(Color.WHITE);
+            centrado(g, "MENU", w, by + 52);
+
+            String[] items = {"RESUME", "NEW GAME", "SOUND: " + (Sonido.isSilencio() ? "OFF" : "ON"), "QUIT"};
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
+            for (int i = 0; i < items.length; i++) {
+                int y = by + 105 + i * 40;
+                if (i == menuSel) {
+                    g.setColor(new Color(255, 215, 0));
+                    centrado(g, "> " + items[i] + " <", w, y);
+                } else {
+                    g.setColor(Color.WHITE);
+                    centrado(g, items[i], w, y);
+                }
+            }
+
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+            g.setColor(Color.LIGHT_GRAY);
+            centrado(g, "UP/DOWN: move   ENTER/SPACE: select   ESC: close", w, by + bh - 16);
         }
 
         private void centrado(Graphics2D g, String texto, int ancho, int y) {

@@ -27,16 +27,16 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
 /**
- * Pantalla de carga. Usa los hilos del Ejercicio 3:
- *   Hilo_I  -> lee el archivo record.txt (mejor puntaje guardado)
- *   Hilo_II -> ciclo 1-10 que avanza la barra de progreso
- *   Main    -> ciclo de vocales (animación A E I O U)
+ * Loading screen. Three threads run at the same time:
+ *   Thread_I  -> reads record.txt (saved best score)
+ *   Thread_II -> loop 1-10 that fills the progress bar
+ *   Main      -> vowel loop (A E I O U animation)
  */
 public class PantallaCarga extends JPanel {
 
     private static final String VOCALES = "AEIOU";
 
-    private final JLabel lblTitulo = new JLabel("Catch those stars!", SwingConstants.CENTER);
+    private final JLabel lblTitulo = new JLabel("CATCH THE STARS", SwingConstants.CENTER);
     private final JLabel lblVocales = new JLabel("", SwingConstants.CENTER);
     private final JProgressBar barra = new JProgressBar(0, 100);
     private final JTextArea registro = new JTextArea();
@@ -94,12 +94,12 @@ public class PantallaCarga extends JPanel {
         g.dispose();
     }
 
-    /** Lanza los tres hilos de carga y un coordinador que espera a que terminen. */
+    /** Starts the three loading threads and a coordinator that waits for them. */
     public void iniciar() {
-        log("[Main] Iniciando carga de recursos...");
+        log("[Main] Loading resources...");
 
-        Thread hiloI = new Thread(this::leerMejor, "Hilo_I");
-        Thread hiloII = new Thread(this::cicloProgreso, "Hilo_II");
+        Thread hiloI = new Thread(this::leerMejor, "Thread_I");
+        Thread hiloII = new Thread(this::cicloProgreso, "Thread_II");
         Thread main = new Thread(this::cicloVocales, "Main");
 
         hiloI.start();
@@ -114,21 +114,22 @@ public class PantallaCarga extends JPanel {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            log("[Main] Ready. Here we go!");
-            dormir(600);
+            log("[Main] Loading complete. Let's play!");
+            Sonido.reproducir(Sonido.Efecto.READY);
+            dormir(700);
             SwingUtilities.invokeLater(() -> alTerminar.accept(mejor));
-        }, "Hilo-Coordinador").start();
+        }, "Coordinator-Thread").start();
     }
 
-    /** Hilo_I: lee el archivo con el mejor puntaje (lo crea si no existe). */
+    /** Thread_I: reads the best-score file (creates it if missing). */
     private void leerMejor() {
         Path ruta = Paths.get("record.txt");
-        log("[Hilo_I] Leyendo " + ruta.getFileName() + "...");
+        log("[Thread_I] Reading " + ruta.getFileName() + "...");
         dormir(500);
         try {
             if (!Files.exists(ruta)) {
                 Files.write(ruta, Collections.singletonList("0"), StandardCharsets.UTF_8);
-                log("[Hilo_I] record.txt no existía: se creó con 0");
+                log("[Thread_I] record.txt did not exist: created with 0");
             }
             try (BufferedReader br = Files.newBufferedReader(ruta, StandardCharsets.UTF_8)) {
                 String linea = br.readLine();
@@ -136,27 +137,28 @@ public class PantallaCarga extends JPanel {
                     try {
                         mejor = Math.max(0, Integer.parseInt(linea.trim()));
                     } catch (NumberFormatException e) {
-                        log("[Hilo_I] Contenido inválido, se usa 0");
+                        log("[Thread_I] Invalid content, using 0");
                     }
                 }
             }
-            log("[Hilo_I] Récord cargado: " + mejor);
+            log("[Thread_I] Best score loaded: " + mejor);
         } catch (IOException e) {
-            log("[Hilo_I] Error de lectura: " + e.getMessage());
+            log("[Thread_I] Read error: " + e.getMessage());
         }
     }
 
-    /** Hilo_II: ciclo 1-10, cada iteración avanza 10 % la barra. */
+    /** Thread_II: loop 1-10, each step fills the bar by 10%. */
     private void cicloProgreso() {
         for (int i = 1; i <= 10; i++) {
             final int paso = i;
             SwingUtilities.invokeLater(() -> barra.setValue(paso * 10));
-            log("[Hilo_II] Paso " + paso + "/10");
+            log("[Thread_II] Step " + paso + "/10");
+            Sonido.reproducir(Sonido.Efecto.TICK);
             dormir(300);
         }
     }
 
-    /** Main: ciclo de vocales (2 vueltas), resalta la vocal actual. */
+    /** Main: vowel loop (2 rounds), highlights the current vowel. */
     private void cicloVocales() {
         for (int vuelta = 0; vuelta < 2; vuelta++) {
             for (int i = 0; i < VOCALES.length(); i++) {

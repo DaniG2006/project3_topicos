@@ -19,7 +19,10 @@ import javax.sound.sampled.SourceDataLine;
  */
 public final class Sonido {
 
-    public enum Efecto { SALTO, BONUS, POWERUP, GOLPE, MUERTE, HITO, RELOJ, GLITCH, VIDA, ROMPER }
+    public enum Efecto {
+        SALTO, BONUS, POWERUP, GOLPE, MUERTE, HITO, RELOJ, GLITCH, VIDA, ROMPER,
+        SELECT, BACK, MOVE
+    }
 
     private static final float RATE = 22050f;
     private static final AudioFormat FORMATO = new AudioFormat(RATE, 16, 1, true, false);
@@ -29,6 +32,7 @@ public final class Sonido {
 
     private static volatile boolean disponible = true;
     private static volatile boolean silencio = false;
+    private static volatile boolean efectosActivos = true;
     private static volatile boolean musicaActiva = false;
     private static boolean iniciado = false;
 
@@ -49,7 +53,7 @@ public final class Sonido {
     }
 
     public static void reproducir(Efecto e) {
-        if (!silencio && disponible) COLA.offer(e);
+        if (!silencio && efectosActivos && disponible) COLA.offer(e);
     }
 
     public static void setSilencio(boolean valor) { silencio = valor; }
@@ -57,6 +61,14 @@ public final class Sonido {
     public static boolean isSilencio() { return silencio; }
 
     public static void setMusica(boolean activa) { musicaActiva = activa; }
+
+    public static boolean isEfectos() { return efectosActivos; }
+
+    public static void setEfectos(boolean activos) { efectosActivos = activos; }
+
+    public static boolean isMusicaOn() { return musicaActiva; }
+
+    public static void setMusicaOn(boolean activa) { musicaActiva = activa; }
 
     // ------------------------------------------------------------------ síntesis
 
@@ -109,6 +121,9 @@ public final class Sonido {
         BANCO.put(Efecto.VIDA, unir(tono(523, 523, 0.08, 0.25, 0), tono(784, 784, 0.08, 0.25, 0),
                 tono(1047, 1047, 0.08, 0.25, 0), tono(1568, 1568, 0.20, 0.25, 0)));
         BANCO.put(Efecto.ROMPER, unir(tono(0, 0, 0.06, 0.30, 2), tono(400, 150, 0.10, 0.25, 0)));
+        BANCO.put(Efecto.SELECT, tono(660, 880, 0.08, 0.20, 0));
+        BANCO.put(Efecto.BACK, tono(440, 280, 0.10, 0.20, 0));
+        BANCO.put(Efecto.MOVE, tono(520, 620, 0.04, 0.15, 0));
     }
 
     // ------------------------------------------------------------------ hilos
@@ -139,8 +154,10 @@ public final class Sonido {
 
     private static void bucleMusica() {
         int[] melodia = {
-            57, 0, 60, 57, 64, 0, 60, 0,   57, 0, 60, 57, 65, 0, 64, 0,
-            55, 0, 59, 55, 62, 0, 59, 0,   52, 0, 56, 59, 64, 0, 63, 0
+            60, 0, 64, 0, 67, 0, 64, 0,
+            62, 0, 65, 0, 69, 0, 65, 0,
+            60, 0, 64, 0, 67, 0, 72, 0,
+            69, 0, 65, 0, 64, 0, 60, 0
         };
         SourceDataLine linea;
         try {
@@ -153,7 +170,7 @@ public final class Sonido {
         }
 
         Map<Integer, byte[]> notas = new HashMap<>();
-        byte[] silencioBuf = new byte[(int) (RATE * 0.14) * 2];
+        byte[] silencioBuf = new byte[(int) (RATE * 0.28) * 2];
         int i = 0;
         while (true) {
             byte[] datos = silencioBuf;
@@ -161,7 +178,7 @@ public final class Sonido {
                 int nota = melodia[i % melodia.length];
                 i++;
                 if (nota != 0) {
-                    datos = notas.computeIfAbsent(nota, m -> tono(frecuencia(m), frecuencia(m), 0.14, 0.10, 0));
+                    datos = notas.computeIfAbsent(nota, m -> tono(frecuencia(m), frecuencia(m), 0.28, 0.07, 1));
                 }
             }
             linea.write(datos, 0, datos.length); // bloquea al ritmo del audio
